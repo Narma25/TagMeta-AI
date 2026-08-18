@@ -88,6 +88,12 @@ def fallback_local_nlp(text_content, filename):
         
     # 2. Process a limited portion with spaCy for Named Entity Recognition.
     # Keeping this at 20,000 characters significantly reduces memory usage.
+    global nlp
+    if nlp is None:
+        print("Loading local NLP model (spaCy)...")
+        nlp = spacy.load("en_core_web_sm")
+
+    fallback_text = text_content[:20000]
     doc = nlp(fallback_text)
     
     people = []

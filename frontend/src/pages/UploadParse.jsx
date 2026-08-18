@@ -37,7 +37,7 @@ export default function UploadParse() {
         formData.append('file', file);
 
         try {
-           response = await fetch(`${import.meta.env.VITE_API_URL}/api/upload`, {
+           const response = await fetch(`${import.meta.env.VITE_API_URL}/api/upload`, {
                 method: 'POST',
                 body: formData,
             });
