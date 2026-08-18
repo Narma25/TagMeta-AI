@@ -24,12 +24,16 @@ from google import genai
 app = Flask(__name__)
 CORS(app)
 
+# Prevent unexpectedly large uploads from exhausting the Render worker.
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+
 load_dotenv()
 client = genai.Client()
 
-# Load the local NLP model into memory when the server starts
-print("Loading local NLP model (spaCy)...")
-nlp = spacy.load("en_core_web_sm")
+# Load spaCy only when the local fallback is actually needed.
+# This keeps the Render worker's startup memory usage lower.
+print("spaCy model will be loaded only if local fallback is needed.")
+nlp = None
 
 # --- MONGODB CONNECTION ---
 mongo_uri = os.getenv("MONGO_URI")
@@ -82,9 +86,9 @@ def fallback_local_nlp(text_content, filename):
     else:
         sentiment_label = "Neutral"
         
-    # 2. Process text with spaCy for Named Entity Recognition (NER)
-    # We only process the first 100,000 characters to keep it fast locally
-    doc = nlp(text_content[:100000])
+    # 2. Process a limited portion with spaCy for Named Entity Recognition.
+    # Keeping this at 20,000 characters significantly reduces memory usage.
+    doc = nlp(fallback_text)
     
     people = []
     locations = []
@@ -397,7 +401,8 @@ def upload_file():
         file.save(filepath)
 
         text_content, segments = parse_file(filepath, file.filename)
-        safe_text = text_content[:150000]
+        # Limit the text sent to the LLM to keep request memory predictable.
+        safe_text = text_content[:100000]
 
         extraction_prompt = f"""
         You are an expert movie metadata analyst. Analyze the following transcript and extract the requested data.
@@ -555,6 +560,14 @@ def upload_file():
         except Exception as fallback_error:
             # If even the local fallback fails, return a 500 server error
             return jsonify({"error": f"API and Local Fallback both failed: {str(fallback_error)}"}), 500
+
+    finally:
+        # Remove the temporary uploaded file after processing.
+        try:
+            if 'filepath' in locals() and os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception as cleanup_error:
+            print(f"[WARNING] Temporary file cleanup failed: {cleanup_error}")
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
